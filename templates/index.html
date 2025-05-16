@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sudoku Solver</title>
+    <style>
+        /* Full-page background */
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 40px 0;
+            background-color: #eef2f5; /* Soft outer background */
+        }
+    
+        /* Title */
+        h2 {
+            margin-bottom: 30px;
+            color: #333;
+        }
+    
+        /* Main content container with card design */
+        .card {
+            background-color: #fafafa; /* Off-white card background */
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            display: inline-block;
+        }
+    
+        /* Inner layout of grid and sidebar */
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 40px;
+        }
+    
+        table {
+            border-collapse: collapse;
+        }
+    
+        td input {
+            width: 35px;
+            height: 35px;
+            text-align: center;
+            font-size: 20px;
+            border: none;
+        }
+    
+        td {
+            border: 1px solid #000;
+            padding: 0;
+        }
+    
+        td.bold-right {
+            border-right: 2px solid black;
+        }
+    
+        td.bold-bottom {
+            border-bottom: 2px solid black;
+        }
+    
+        input.original {
+            color: black;
+            font-weight: bold;
+        }
+    
+        input.solved {
+            color: black;
+            font-weight: bold;
+        }
+    
+        input.typed {
+            color: blue;
+            background-color: #e0f0ff;
+            font-weight: bold;
+        }
+    
+        input.invalid {
+            background-color: #ffd6d6;
+            color: red;
+            font-weight: bold;
+        }
+    
+        input.conflict-zone {
+            background-color: #f0f8ff !important;
+        }
+    
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+    
+        /* Solve and Reset buttons */
+        button {
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+    
+        .button-group {
+            margin-bottom: 20px;
+        }
+    
+        .button-group button {
+            padding: 12px 20px;
+            margin: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            background-color: #f0f0f0;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+    
+        .button-group button:hover {
+            background-color: #e0e0e0;
+        }
+    
+        .numpad {
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            gap: 12px;
+            justify-content: center;
+        }
+    
+        .numpad button {
+            width: 60px;
+            height: 60px;
+            font-size: 22px;
+            font-weight: bold;
+            color: #2952a3;
+            background-color: #f5f7fa;
+            border-radius: 12px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+    
+        .numpad button:hover {
+            background-color: #e6ebf2;
+        }
+    </style>        
+</head>
+<body>
+    <h2>Sudoku Solver</h2>
+    {% if error %}
+    <p style="color: red; font-weight: bold;">{{ error }}</p>
+    {% endif %}
+
+    <div class="card">
+        <form method="POST" id="sudoku-form">
+            <div class="container">
+                <!-- Sudoku grid -->
+                <table>
+                    {% for i in range(9) %}
+                    <tr>
+                        {% for j in range(9) %}
+                        {% set val = board[i][j] %}
+                        <td class="
+                            {% if j in [2,5] %}bold-right{% endif %}
+                            {% if i in [2,5] %}bold-bottom{% endif %}
+                        ">
+                            <input type="text" name="cell-{{ i }}-{{ j }}" maxlength="1" autocomplete="off"
+                                value="{{ val if val != '.' else '' }}"
+                                class="{% if solved[i][j] %}solved{% elif val != '' and val != '.' %}typed{% endif %}"
+                                data-row="{{ i }}" data-col="{{ j }}">
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </table>
+
+                <!-- Sidebar with buttons and number pad -->
+                <div class="sidebar">
+                    <div class="button-group">
+                        <button type="submit">Solve</button>
+                        <button type="button" onclick="location.reload()">Reset</button>
+                    </div>                
+                    <div class="numpad">
+                        {% for n in range(1, 10) %}
+                        <button type="button" onclick="enterNumber('{{ n }}')">{{ n }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</body>
+    <script>
+        let selectedInput = null;
+    
+        const inputs = document.querySelectorAll("input[type='text']");
+    
+        // Debounce helper to limit update frequency
+        function debounce(func, delay) {
+            let timeout;
+            return function (...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), delay);
+            };
+        }
+    
+        const debouncedUpdate = debounce((cell) => {
+            highlightConflictZones(cell);
+            validateGrid();
+        }, 200);
+    
+        inputs.forEach(cell => {
+            cell.addEventListener('input', (e) => {
+                const val = e.data;
+    
+                if (!/^[1-9]$/.test(val)) {
+                    cell.value = '';
+                    cell.classList.remove('typed');
+                    clearConflictZones();
+                    validateGrid();
+                    return;
+                }
+    
+                // Replace current value with new digit
+                cell.value = val;
+                cell.classList.add('typed');
+                cell.classList.remove('solved');
+                debouncedUpdate(cell);
+            });
+    
+            cell.addEventListener('focus', () => {
+                selectedInput = cell;
+                if (cell.value !== '') {
+                    highlightConflictZones(cell);
+                }
+            });
+    
+            cell.addEventListener('blur', () => {
+                clearConflictZones();
+            });
+        });
+    
+        function enterNumber(num) {
+            if (selectedInput && !selectedInput.classList.contains('original')) {
+                selectedInput.value = num;
+                selectedInput.classList.add('typed');
+                selectedInput.classList.remove('solved');
+                highlightConflictZones(selectedInput);
+                validateGrid();
+            }
+        }
+    
+        function clearGrid() {
+            inputs.forEach(cell => {
+                if (!cell.classList.contains('original')) {
+                    cell.value = '';
+                    cell.classList.remove('typed', 'solved', 'invalid', 'conflict-zone');
+                }
+            });
+        }
+    
+        function validateGrid() {
+            inputs.forEach(cell => cell.classList.remove('invalid'));
+    
+            const grid = [...Array(9)].map(() => Array(9).fill(null));
+            inputs.forEach(input => {
+                const r = parseInt(input.dataset.row);
+                const c = parseInt(input.dataset.col);
+                grid[r][c] = input.value;
+            });
+    
+            const conflicts = new Set();
+    
+            function checkConflicts(getCellCoords) {
+                for (let i = 0; i < 9; i++) {
+                    const seen = {};
+                    for (let j = 0; j < 9; j++) {
+                        const [r, c] = getCellCoords(i, j);
+                        const val = grid[r][c];
+                        if (val && seen[val]) {
+                            conflicts.add(`${r},${c}`);
+                            conflicts.add(seen[val]);
+                        } else if (val) {
+                            seen[val] = `${r},${c}`;
+                        }
+                    }
+                }
+            }
+    
+            checkConflicts((i, j) => [i, j]); // rows
+            checkConflicts((j, i) => [i, j]); // columns
+            checkConflicts((i, j) => {
+                const row = 3 * Math.floor(i / 3) + Math.floor(j / 3);
+                const col = 3 * (i % 3) + (j % 3);
+                return [row, col];
+            }); // boxes
+    
+            inputs.forEach(input => {
+                const r = input.dataset.row;
+                const c = input.dataset.col;
+                const key = `${r},${c}`;
+                const val = input.value;
+    
+                if (conflicts.has(key)) {
+                    input.classList.add('invalid');
+                } else {
+                    input.classList.remove('invalid');
+                }
+    
+                if (val === '') {
+                    input.classList.remove('invalid');
+                }
+            });
+        }
+    
+        function clearConflictZones() {
+            inputs.forEach(cell => cell.classList.remove('conflict-zone'));
+        }
+    
+        function highlightConflictZones(cell) {
+            clearConflictZones();
+    
+            const selectedValue = cell.value;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+    
+            if (!/^[1-9]$/.test(selectedValue)) return;
+    
+            inputs.forEach(other => {
+                const r = parseInt(other.dataset.row);
+                const c = parseInt(other.dataset.col);
+                const inSameRow = r === row;
+                const inSameCol = c === col;
+                const inSameBox =
+                    Math.floor(r / 3) === Math.floor(row / 3) &&
+                    Math.floor(c / 3) === Math.floor(col / 3);
+    
+                if ((inSameRow || inSameCol || inSameBox) && !(r === row && c === col)) {
+                    other.classList.add('conflict-zone');
+                }
+            });
+        }
+    
+        // Arrow key navigation between cells
+        document.addEventListener('keydown', (e) => {
+            if (!selectedInput) return;
+    
+            const row = parseInt(selectedInput.dataset.row);
+            const col = parseInt(selectedInput.dataset.col);
+    
+            let newRow = row;
+            let newCol = col;
+    
+            switch (e.key) {
+                case 'ArrowUp':
+                    newRow = Math.max(0, row - 1);
+                    break;
+                case 'ArrowDown':
+                    newRow = Math.min(8, row + 1);
+                    break;
+                case 'ArrowLeft':
+                    newCol = Math.max(0, col - 1);
+                    break;
+                case 'ArrowRight':
+                    newCol = Math.min(8, col + 1);
+                    break;
+                default:
+                    return;
+            }
+    
+            e.preventDefault();
+    
+            const nextCell = document.querySelector(`input[data-row="${newRow}"][data-col="${newCol}"]`);
+            if (nextCell) {
+                nextCell.focus();
+            }
+        });
+    </script>           
+</body>
+</html>
