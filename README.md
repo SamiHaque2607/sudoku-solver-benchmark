@@ -61,8 +61,7 @@ The chart below visualises the difference between solving times:
 ## Live Demo
 
 You can try the interactive Sudoku solver here:  
-**[https://your-render-url.onrender.com](https://your-render-url.onrender.com)**  
-(Replace this with your actual Render URL once deployed)
+**(https://samihaque.pythonanywhere.com)**  
 
 ---
 
