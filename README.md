@@ -34,7 +34,7 @@ Using the same backtracking algorithm:
 - **Python:** ~810 seconds (~13.5 minutes)
 - **C++:** ~10.7 seconds
 
-This means the C++ version was approximately **80× faster**.
+This means the C++ version was approximately **76× faster**.
 
 ---
 
